@@ -32,6 +32,7 @@
 # Import main Neural Piano module
 import neuralpiano
 
+# Render MIDI
 neuralpiano.render_midi('input.mid', 'output.wav')
 ```
 
