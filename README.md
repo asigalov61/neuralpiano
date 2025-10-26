@@ -12,7 +12,7 @@
 ```sh
 # It is recommended that you upgrade pip and setuptools prior to install for max compatibility
 !pip install --upgrade pip
-!pip install --upgrade setuptools
+!pip install --upgrade setuptools build wheel
 ```
 
 ### pip install
@@ -31,6 +31,8 @@
 ```python
 # Import main Neural Piano module
 import neuralpiano
+
+neuralpiano.render_midi('input.mid', 'output.wav')
 ```
 
 ***
