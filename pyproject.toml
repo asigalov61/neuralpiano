@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neuralpiano"
-version = "25.8.9"
+version = "25.10.47"
 description = "Hi-Fi neural MIDI piano synthesizer and MIDI renderer"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -20,20 +20,11 @@ dependencies = [
   "matplotlib",
   "hf-transfer",
   "huggingface_hub",
-  "lightning[extra]",
-  "note-seq",
   "soundfile",
   "torch",
-  "torchaudio",
   "numpy==1.24.4",
-  "resampy",
   "librosa",
-  "scipy",
-  "pesq",
-  "auraloss",
-  "nnAudio",
-  "ninja",
-  "importlib"
+  "midirenderer"
 ]
 keywords = ["MIDI", "music", "music ai", "MIDI piano", "Piano synthesizer", "renderer", "MIDI synthesizer", "MIDI renderer", "neural synthesizer", "artificial intelligence", "AI", "audio synthesis"]
 classifiers = [
