@@ -24,14 +24,73 @@ def master_mono_piano(mono: Tensor,
                       reverb_mix: float = 0.06,
                       limiter_ceiling_db: float = -0.3,
                       dithering_bits: int = 24,
+                      gain_db: float = 20.0,
                       device: torch.device = None,
                       dtype: torch.dtype = None,
                       iir_impulse_len: int = 2048,        # length used to approximate IIRs as FIRs (tradeoff speed/accuracy)
                     ) -> Tuple[Tensor, Dict]:
-    
     """
-    Optimized mastering pipeline using FIR approximations for small biquads (computed once)
-    and single-shot FFT convolutions for all FIRs (presence IR, IIR-approx, reverb).
+    Mastering pipeline for a mono input piano track producing a stereo master and diagnostics.
+
+    Description and design choices
+    - Purpose: provide a compact, deterministic, and high-throughput mastering chain implemented
+      with PyTorch tensors. The pipeline uses short FIR approximations for small IIR filters,
+      single-shot FFT convolution for medium/long FIRs (cascaded HP + shelf, reverb), a fast
+      RMS-based compressor, fractional-delay stereo widening, a smooth soft limiter, and
+      deterministic TPDF dithering.
+    - Where gain_db is applied: an explicit master gain parameter (gain_db) is applied after
+      EQ/compression/stereo processing and reverb but before the soft limiter and final safety
+      scaling. This placement allows the limiter to react to the applied gain, preserving
+      consistent ceiling behavior while enabling transparent loudness adjustments and avoiding
+      excessive post-limiter boosting which would bypass the limiter's protection.
+    - Implementation details:
+      * EQ: designs 2nd-order biquads and converts them to short FIR impulse responses using
+        direct IIR stepping (iir_to_fir). HP and low-shelf are cascaded via FFT convolution.
+      * Presence: implemented as a small symmetric FIR (sinc-windowed) and applied with conv1d.
+      * Compression: fast RMS detector downsampled to ~4 kHz with an attack/release recurrence
+        executed on CPU for determinism and efficiency. Soft-knee gain computer produces a
+        time-varying linear gain applied to the signal with optional makeup gain.
+      * Stereo widen: fractional sub-sample delays are used to create left/right channels, then
+        mid/side processing adjusts side level.
+      * Reverb: simple tapped + exponential-tail IR built and FFT-convolved once.
+      * Limiter: soft tanh-based limiter that scales output to target ceiling (limiter_ceiling_db).
+      * Dither: deterministic vectorized LCG generates TPDF dither for specified bit depth.
+    - Determinism and diagnostics: the function avoids non-deterministic ops and returns a
+      diagnostics dict with numeric metrics (peaks, RMS, average reduction, applied scales).
+    - Precision and device handling: prefers float32 for performance; preserves device assignment;
+      convolution routines use torch.fft (rfft/irfft) for CPU/GPU compatibility.
+
+    Parameters
+    - mono: Tensor of shape [N] or [1, N], mono PCM in float range roughly [-1, 1].
+    - sr: sample rate in Hz.
+    - hp_cut: high-pass cutoff frequency in Hz.
+    - low_shelf_db: low-shelf gain (dB).
+    - low_shelf_fc: low-shelf center freq (Hz).
+    - presence_boost_db: narrow presence boost amount (dB).
+    - presence_fc: center freq of presence boost (Hz).
+    - compressor_...: compressor threshold (dBFS), ratio, attack and release (ms), and makeup (dB).
+    - stereo_spread_ms: nominal stereo spread in milliseconds used to compute fractional delays.
+    - stereo_spread_level_db: side gain in dB applied to M/S side channel.
+    - reverb_size_sec: approximate reverb tail time in seconds (affects IR length).
+    - reverb_mix: wet fraction of reverb to blend with dry signal.
+    - limiter_ceiling_db: final soft limiter ceiling in dBFS (should be <= 0).
+    - dithering_bits: integer bits for TPDF dithering (1-32). Use 0 or outside range to disable.
+    - gain_db: master gain applied (dB). Positive increases loudness, negative reduces. Applied
+      before the limiter so the limiter shapes peaks introduced by the gain.
+    - device, dtype: optional torch.device and dtype to force placement/precision.
+    - iir_impulse_len: length of FIR used to approximate 2nd-order IIRs (tradeoff accuracy/speed).
+
+    Returns
+    - stereo: Tensor shaped [2, N] float32 in range (-1, 1) representing left/right master.
+    - diagnostics: Dict with numeric measurements and settings for reproducibility.
+
+    Notes
+    - The function keeps intermediary operations vectorized. Non-trivial recurrence for the RMS
+      detector runs on CPU for stability and determinism but the returned envelopes are moved back
+      to the target device and dtype.
+    - For large inputs and GPU usage, FFT sizes are chosen as powers of two for efficiency.
+    - If you want gain to be applied as a pre-EQ trim (instead of pre-limiter), move the gain
+      multiplication earlier; current placement intentionally lets the limiter handle the gain.
     """
 
     # --- Setup, sanitize ---
@@ -130,9 +189,6 @@ def master_mono_piano(mono: Tensor,
         return y[:n]
 
     # apply HP then shelf by convolving with cascaded IR (hp_ir * shelf_ir)
-    casc_ir = torch.fft.irfft(torch.fft.rfft(hp_ir, n=1<<((hp_ir.numel()+shelf_ir.numel()-2).bit_length())) * 
-                               torch.fft.rfft(shelf_ir, n=1<<((hp_ir.numel()+shelf_ir.numel()-2).bit_length())))
-    # safer: just convolve via fft_convolve_full on device
     casc_ir = fft_convolve_full(hp_ir, shelf_ir, device, dtype)[:max(hp_ir.numel(), shelf_ir.numel())]
     # normalize tiny numerical offsets
     casc_ir = casc_ir / (casc_ir.abs().sum().clamp(min=eps))
@@ -281,6 +337,17 @@ def master_mono_piano(mono: Tensor,
         "reverb_mix": reverb_mix,
         "reverb_len": reverb_len,
     })
+
+    # --- MASTER GAIN: apply desired gain in linear domain before limiter ---
+    if abs(gain_db) > 1e-12:
+        gain_lin_master = db2lin(gain_db)
+        left = left * gain_lin_master
+        right = right * gain_lin_master
+        diagnostics['applied_gain_db'] = float(gain_db)
+        diagnostics['applied_gain_lin'] = float(gain_lin_master)
+    else:
+        diagnostics['applied_gain_db'] = 0.0
+        diagnostics['applied_gain_lin'] = 1.0
 
     # --- 6) Soft limiter ---
     def soft_limiter(x_chan, ceiling_db):
