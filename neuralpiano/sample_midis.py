@@ -1,5 +1,5 @@
 #===================================================================================================
-# Godzilla MIDI Dataset sample_midis Python module
+# Neural Piano sample_midis Python module
 #===================================================================================================
 # Project Los Angeles
 # Tegridy Code 2025
@@ -8,7 +8,7 @@
 #===================================================================================================
 
 import importlib.resources as pkg_resources
-from godzillamididataset import seed_midis
+from neuralpiano import seed_midis
 
 #===================================================================================================
 
