@@ -24,17 +24,6 @@
 !pip install -U neuralpiano
 ```
 
-### Optional packages
-
-#### Packages for midi_to_colab_audio module
-
-```sh
-# The following command will install packages for midi_to_colab_audio module
-
-!sudo apt update -y
-!sudo apt install fluidsynth
-```
-
 ***
 
 ## Quick-start use example
