@@ -10,7 +10,7 @@ from .audio import *
 
 
 class EncoderDecoder:
-    def __init__(self, load_multi_instrumental_model=False, load_path_inference=None, device=None):
+    def __init__(self, load_multi_instrumental_model=False, use_v1_piano_model=False, load_path_inference=None, device=None):
         download_models()
         if device is None:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -22,7 +22,10 @@ class EncoderDecoder:
                 self.load_path_inference = load_path_inference_multi_instrumental_default
                 
             else:
-                self.load_path_inference = load_path_inference_solo_piano_default
+                if use_v1_piano_model:
+                    self.load_path_inference = load_path_inference_solo_piano_v1_default
+                else:
+                    self.load_path_inference = load_path_inference_solo_piano_default
         self.get_models()
         
     def get_models(self):

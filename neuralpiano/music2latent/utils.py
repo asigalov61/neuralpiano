@@ -117,11 +117,12 @@ def download_models():
     models_dir = os.path.join(home_root, "models")
     os.makedirs(models_dir, exist_ok=True)
     
-    if not os.path.exists(os.path.join(models_dir, "music2latent_maestro_loss_16.871_iters_45500.pt")):
+    if not os.path.exists(os.path.join(models_dir, "SGM-v2.01-YamahaGrand-Guit-Bass-v2.7.sf2")):
     
         files = [
             ("SonyCSLParis/music2latent", "music2latent.pt", "model"),
             ("asigalov61/music2latent-maestro", "music2latent_maestro_loss_16.871_iters_45500.pt", "model"),
+            ("asigalov61/music2latent-maestro", "music2latent_maestro_loss_27.834_iters_14300.pt", "model"),
             ("projectlosangeles/soundfonts4u", "SGM-v2.01-YamahaGrand-Guit-Bass-v2.7.sf2", "dataset"),
         ]
 
