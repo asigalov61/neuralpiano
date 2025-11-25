@@ -80,7 +80,7 @@ from .master import master_mono_piano
 
 
 def render_midi(input_midi_file,
-                output_audio_file='neuralpiano_output.wav',
+                output_audio_file=None,
                 sample_rate=48000,
                 denoising_steps=10,
                 max_batch_size=None,
@@ -119,7 +119,8 @@ def render_midi(input_midi_file,
     input_midi_file : str or pathlib.Path
         Path to the input MIDI file to render.
     output_audio_file : str, optional
-        Path where the final audio file will be written (default 'neuralpiano_output.wav').
+        Path where the final audio file will be written.
+        If value is None (default), output audio file will use MIDI file name and WAV format.
     sample_rate : int, optional
         Target sample rate for audio processing and output (default 48000).
     denoising_steps : int, optional
@@ -162,7 +163,8 @@ def render_midi(input_midi_file,
     device : str or torch.device, optional
         Device identifier for PyTorch operations (e.g., 'cuda' or 'cpu') (default 'cuda').
     return_audio : bool, optional
-        If True, return the final audio as a NumPy array in addition to writing the file
+        If True, return a tuple with the final audio as a NumPy array and its sample rate value.
+        If False, write the final audio into specified output file
         (default False).
     verbose : bool, optional
         If True, print high-level progress messages to stdout (default True).
@@ -219,18 +221,24 @@ def render_midi(input_midi_file,
     ...                     device="cpu")
 
     """
+
+    def _pv(msg):
+        if verbose:
+            print(msg)
+            
+    _pv('=' * 70)
+    _pv('Neural Piano')
+    _pv('=' * 70)
     
     home_root = os.getcwd()
     models_dir = os.path.join(home_root, "models")
     sf2_path = os.path.join(models_dir, sf2_name)
 
-    def _pv(msg):
-        if verbose:
-            print(msg)
-
-    _pv('=' * 70)
-    _pv('Neural Piano')
-    _pv('=' * 70)
+    if verbose_diag:
+        _pv(home_root)
+        _pv(models_dir)
+        _pv(sf2_path)
+        _pv('=' * 70)
 
     _pv('Prepping model...')
     encdec = EncoderDecoder(load_multi_instrumental_model=load_multi_instrumental_model,
@@ -344,18 +352,37 @@ def render_midi(input_midi_file,
         _pv(audio.shape)
         _pv('=' * 70)
 
-    _pv('Saving final audio...')
+    _pv('Creating final audio...')
     final_audio = audio.cpu().numpy().squeeze().T
 
     if verbose_diag:
         _pv(final_audio.shape)
+        _pv(sr)
         _pv('=' * 70)
 
-    sf.write(output_audio_file, final_audio, samplerate=sr)
-
-    _pv('=' * 70)
-    _pv('Done!')
-    _pv('=' * 70)
-
     if return_audio:
-        return final_audio
+        _pv('Returning final audio...')
+        _pv('=' * 70)
+        _pv('Done!')
+        _pv('=' * 70)
+        return final_audio, sr
+    
+    else:
+        _pv('Saving final audio...')
+        if output_audio_file is None:
+            midi_name = os.path.basename(input_midi_file)
+            output_name, _ = os.path.splitext(midi_name)
+            output_audio_file = os.path.join(home_root, output_name+'.wav')
+            
+        if verbose_diag:
+            _pv(output_audio_file)
+            _pv(sr)
+            _pv('=' * 70)
+
+        sf.write(output_audio_file, final_audio, samplerate=sr)
+        
+        _pv('=' * 70)
+        _pv('Done!')
+        _pv('=' * 70)
+        
+        return output_audio_file

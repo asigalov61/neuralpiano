@@ -8,4 +8,6 @@ from .bass import enhance_audio_bass
 
 from .master import master_mono_piano
 
+from .mixer import mix_audio
+
 from .neuralpiano import *
