@@ -1,12 +1,27 @@
 import soundfile as sf
 import torch
 import numpy as np
+from tqdm import tqdm
 
 from .hparams import *
 from .hparams_inference import *
 from .utils import *
 from .models import *
 from .audio import *
+
+
+def _should_show_progress():
+    """
+    Return True when progress bars should be shown (main process).
+    Hides bars in distributed workers other than rank 0.
+    """
+    try:
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            return torch.distributed.get_rank() == 0
+    except Exception:
+        # If distributed is not configured or any error occurs, show progress
+        return True
+    return True
 
 
 class EncoderDecoder:
@@ -20,7 +35,6 @@ class EncoderDecoder:
         if load_path_inference is None:
             if load_multi_instrumental_model:
                 self.load_path_inference = load_path_inference_multi_instrumental_default
-                
             else:
                 if use_v1_piano_model:
                     self.load_path_inference = load_path_inference_solo_piano_v1_default
@@ -34,11 +48,13 @@ class EncoderDecoder:
         gen.load_state_dict(checkpoint['gen_state_dict'], strict=False)
         self.gen = gen
 
-    def encode(self, path_or_audio, max_waveform_length=None, max_batch_size=None, extract_features=False):
+    def encode(self, path_or_audio, max_waveform_length=None, max_batch_size=None, extract_features=False, show_progress=True):
         '''
         path_or_audio: path of audio sample to encode or numpy array of waveform to encode
         max_waveform_length: maximum length of waveforms in the batch for encoding: tune it depending on the available GPU memory
         max_batch_size: maximum inference batch size for encoding: tune it depending on the available GPU memory
+        extract_features: if True, return raw features (no sigma rescale)
+        show_progress: whether to show tqdm progress bars
 
         WARNING! if input is numpy array of stereo waveform, it must have shape [waveform_samples, audio_channels]
 
@@ -48,14 +64,15 @@ class EncoderDecoder:
             max_waveform_length = max_waveform_length_encode
         if max_batch_size is None:
             max_batch_size = max_batch_size_encode
-        return encode_audio_inference(path_or_audio, self, max_waveform_length, max_batch_size, device=self.device, extract_features=extract_features)
+        return encode_audio_inference(path_or_audio, self, max_waveform_length, max_batch_size, device=self.device, extract_features=extract_features, show_progress=show_progress)
     
-    def decode(self, latent, denoising_steps=1, max_waveform_length=None, max_batch_size=None):
+    def decode(self, latent, denoising_steps=1, max_waveform_length=None, max_batch_size=None, show_progress=True):
         '''
         latent: numpy array of latents to decode with shape [audio_channels, dim, length]
         denoising_steps: number of denoising steps to use for decoding
         max_waveform_length: maximum length of waveforms in the batch for decoding: tune it depending on the available GPU memory
         max_batch_size: maximum inference batch size for decoding: tune it depending on the available GPU memory
+        show_progress: whether to show tqdm progress bars
 
         Returns numpy array of decoded waveform with shape [waveform_samples, audio_channels]
         '''
@@ -63,7 +80,7 @@ class EncoderDecoder:
             max_waveform_length = max_waveform_length_decode
         if max_batch_size is None: 
             max_batch_size = max_batch_size_decode
-        return decode_latent_inference(latent, self, max_waveform_length, max_batch_size, diffusion_steps=denoising_steps, device=self.device)
+        return decode_latent_inference(latent, self, max_waveform_length, max_batch_size, diffusion_steps=denoising_steps, device=self.device, show_progress=show_progress)
 
 
 
@@ -96,7 +113,7 @@ def decode_to_representation(model, latents, diffusion_steps=1, device='cuda'):
 # Returns:
 #   latent: compressed latent representation with shape [audio_channels, dim, latent_length]
 @torch.no_grad()
-def encode_audio_inference(audio_path, trainer, max_waveform_length_encode, max_batch_size_encode, device='cuda', extract_features=False):
+def encode_audio_inference(audio_path, trainer, max_waveform_length_encode, max_batch_size_encode, device='cuda', extract_features=False, show_progress=True):
     trainer.gen = trainer.gen.to(device)
     trainer.gen.eval()
     downscaling_factor = 2**freq_downsample_list.count(0)
@@ -143,13 +160,16 @@ def encode_audio_inference(audio_path, trainer, max_waveform_length_encode, max_
     if repr_encoder.shape[0] > max_batch_size:
         repr_encoder_ls = torch.split(repr_encoder, max_batch_size, dim=0)
         latent_ls = []
-        for i in range(len(repr_encoder_ls)):
-            with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=mixed_precision): # disable float16 for encoding (can cause nans)
-                latent = trainer.gen.encoder(repr_encoder_ls[i], extract_features=extract_features)
-            latent_ls.append(latent)
+        show = show_progress and _should_show_progress()
+        for chunk in tqdm(repr_encoder_ls, desc="Encoding chunks", unit="chunk", leave=False, disable=not show):
+            # Use autocast as before; mixed_precision controls dtype
+            with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=mixed_precision):
+                latent_chunk = trainer.gen.encoder(chunk, extract_features=extract_features)
+            latent_ls.append(latent_chunk)
         latent = torch.cat(latent_ls, dim=0)
     else:
-        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=mixed_precision): # disable float16 for encoding (can cause nans)
+        # single batch encode
+        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=mixed_precision):
             latent = trainer.gen.encoder(repr_encoder, extract_features=extract_features)
     # split samples
     if latent.shape[0]>1:
@@ -172,7 +192,7 @@ def encode_audio_inference(audio_path, trainer, max_waveform_length_encode, max_
 # Returns:
 #   audio: numpy array of decoded waveform with shape [waveform_samples, audio_channels]
 @torch.no_grad()
-def decode_latent_inference(latent, trainer, max_waveform_length_decode, max_batch_size_decode, diffusion_steps=1, device='cuda'):
+def decode_latent_inference(latent, trainer, max_waveform_length_decode, max_batch_size_decode, diffusion_steps=1, device='cuda', show_progress=True):
     trainer.gen = trainer.gen.to(device)
     trainer.gen.eval()
     downscaling_factor = 2**freq_downsample_list.count(0)
@@ -202,14 +222,16 @@ def decode_latent_inference(latent, trainer, max_waveform_length_decode, max_bat
         latent = torch.cat(latent, dim=0)
     # decode latent using a maximum batch size (dimension 0) of max_batch_size_inference, if latent is longer than max_batch_size_inference, chunk it into max_batch_size_inference chunks, the last chunk will maybe have less samples in the batch, then decode the chunks and concatenate the results into the batch dimension
     max_batch_size = max_batch_size_decode
+    show = show_progress and _should_show_progress()
     if latent.shape[0] > max_batch_size:
         latent_ls = torch.split(latent, max_batch_size, dim=0)
         repr_ls = []
-        for i in range(len(latent_ls)):
-            repr = decode_to_representation(trainer.gen, latent_ls[i], diffusion_steps=diffusion_steps, device=device)
-            repr_ls.append(repr)
+        for chunk in tqdm(latent_ls, desc="Decoding chunks", unit="chunk", leave=False, disable=not show):
+            repr_chunk = decode_to_representation(trainer.gen, chunk, diffusion_steps=diffusion_steps, device=device)
+            repr_ls.append(repr_chunk)
         repr = torch.cat(repr_ls, dim=0)
     else:
+        # single batch decode
         repr = decode_to_representation(trainer.gen, latent, diffusion_steps=diffusion_steps, device=device)
     # split samples
     if repr.shape[0]>1:
