@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neuralpiano"
-version = "25.11.34"
+version = "25.11.37"
 description = "Hi-Fi neural MIDI piano synthesizer and MIDI renderer"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
