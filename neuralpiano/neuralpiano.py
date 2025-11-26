@@ -86,7 +86,7 @@ output_audio_file : str or None
 sample_rate : int
     Target sample rate for loading and processing audio (default: 48000).
 denoising_steps : int
-    Default number of denoising steps passed to the decoder/denoiser.
+    Default number of denoising steps passed to the decoder.
 max_batch_size : int or None
     Maximum batch size to use when encoding/decoding; passed to EncoderDecoder.
 use_v1_piano_model : bool
@@ -108,8 +108,7 @@ trim_hop_length : int
 denoise : bool
     If True, run the denoiser post-processing step.
 denoise_kwargs : dict or None
-    Additional keyword arguments for `denoise_audio`. `denoising_steps` is set
-    from the top-level `denoising_steps` unless overridden here.
+    Additional keyword arguments for `denoise_audio`.
 enhance_bass : bool
     If True, run bass enhancement post-processing.
 bass_kwargs : dict or None
@@ -125,8 +124,8 @@ master : bool
     If True, run final mastering pass.
 master_kwargs : dict or None
     Additional keyword arguments for `master_mono_piano`. `gain_db` is set from
-    the top-level `gain_db` unless overridden here.
-gain_db : float
+    the top-level `overall_gain_db` unless overridden here.
+overall_gain_db : float
     Default gain (dB) applied during mastering (default: 10.0).
 device : str
     Device string for torch (e.g., 'cuda' or 'cpu'). Converted to `torch.device`
@@ -189,7 +188,7 @@ def render_midi(input_midi_file,
                 trim_top_db=60,
                 trim_frame_length=2048,
                 trim_hop_length=512,
-                denoise=False,
+                denoise=True,
                 denoise_kwargs=None,
                 enhance_bass=False,
                 bass_kwargs=None,
@@ -198,7 +197,7 @@ def render_midi(input_midi_file,
                 enhance_full_kwargs=None,
                 master=False,
                 master_kwargs=None,
-                gain_db=10.0,
+                overall_gain_db=10.0,
                 device='cuda',
                 return_audio=False,
                 verbose=True,
@@ -224,7 +223,7 @@ def render_midi(input_midi_file,
     sample_rate : int
         Sample rate for loading and processing audio (default: 48000).
     denoising_steps : int
-        Default denoising steps passed to decoder/denoiser.
+        Default denoising steps passed to decoder.
     max_batch_size : int or None
         Max batch size for EncoderDecoder operations.
     use_v1_piano_model : bool
@@ -246,8 +245,7 @@ def render_midi(input_midi_file,
     denoise : bool
         Run denoiser post-processing when True.
     denoise_kwargs : dict or None
-        Extra kwargs for `denoise_audio`. `denoising_steps` is set from the
-        top-level argument unless overridden here.
+        Extra kwargs for `denoise_audio`.
     enhance_bass : bool
         Run bass enhancement when True.
     bass_kwargs : dict or None
@@ -264,7 +262,7 @@ def render_midi(input_midi_file,
     master_kwargs : dict or None
         Extra kwargs for `master_mono_piano`. `gain_db` is set from the top-level
         argument unless overridden here.
-    gain_db : float
+    overall_gain_db : float
         Default gain (dB) applied during mastering.
     device : str
         Torch device string (e.g., 'cuda' or 'cpu').
@@ -306,14 +304,14 @@ def render_midi(input_midi_file,
     master_kwargs = {} if master_kwargs is None else dict(master_kwargs)
 
     # Provide sensible defaults from top-level args unless overridden in kwargs
-    if 'denoising_steps' not in denoise_kwargs:
-        denoise_kwargs['denoising_steps'] = denoising_steps
-
     if 'low_gain_db' not in bass_kwargs:
         bass_kwargs['low_gain_db'] = low_gain_db
 
+    if 'overall_gain_db' not in enhance_full_kwargs:
+        enhance_full_kwargs['overall_gain_db'] = overall_gain_db
+
     if 'gain_db' not in master_kwargs:
-        master_kwargs['gain_db'] = gain_db
+        master_kwargs['gain_db'] = overall_gain_db
 
     home_root = os.getcwd()
     models_dir = os.path.join(home_root, "models")
@@ -394,7 +392,7 @@ def render_midi(input_midi_file,
 
     _pv('Rendering...')
     audio = encdec.decode(latent,
-                          denoising_steps=denoise_kwargs.get('denoising_steps', denoising_steps),
+                          denoising_steps=denoising_steps,
                           max_batch_size=max_batch_size,
                           show_progress=verbose
                          )
@@ -436,7 +434,17 @@ def render_midi(input_midi_file,
         _pv('Enhancing full audio...')
         full_call_kwargs = dict(sr=sr, device=torch.device(device))
         full_call_kwargs.update(enhance_full_kwargs)
-        audio, full_diag = enhance_audio_full(audio, **full_call_kwargs)
+        
+        if not master:
+            output_as_stereo = True
+            
+        else:
+            output_as_stereo = False
+        
+        audio, full_diag = enhance_audio_full(audio,
+                                              output_as_stereo=output_as_stereo,
+                                              **full_call_kwargs
+                                              )
 
         if verbose_diag:
             _pv(full_diag)
