@@ -1,4 +1,4 @@
-# enhancer.py
+# Enhancer Python Module
 
 """
 A compact, dependency-light audio enhancement module implemented with PyTorch and NumPy.
