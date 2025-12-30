@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=80.0.0", "wheel"]
+requires = ["setuptools>=80.9.0", "build", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "neuralpiano"
-version = "25.11.38"
+version = "25.11.41"
 description = "Hi-Fi neural MIDI piano synthesizer and MIDI renderer"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -22,7 +22,7 @@ dependencies = [
   "huggingface_hub",
   "soundfile",
   "torch",
-  "numpy==1.24.4",
+  "numpy==1.26.4",
   "librosa",
   "midirenderer"
 ]
@@ -32,15 +32,13 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "Topic :: Multimedia :: Sound/Audio :: MIDI",
   "Operating System :: OS Independent",
-  "Programming Language :: Python :: 3.6",
-  "Programming Language :: Python :: 3.7",
   "Programming Language :: Python :: 3.8",
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12"
 ]
-requires-python = ">=3.6"
+requires-python = ">=3.8"
 
 [project.readme]
 file = "neuralpiano/README.md"
@@ -49,9 +47,8 @@ content-type = "text/markdown"
 [project.urls]
 Homepage = "https://github.com/asigalov61/neuralpiano"
 SoundCloud = "https://soundcloud.com/aleksandr-sigalov-61/"
-Samples = "https://github.com/asigalov61/neuralpiano/tree/main/neuralpiano/output_samples"
+Samples = "https://soundcloud.com/aleksandr-sigalov-61/sets/neural-piano"
 Documentation = "https://github.com/asigalov61/neuralpiano"
 Issues = "https://github.com/asigalov61/neuralpiano/issues"
 Discussions = "https://github.com/asigalov61/neuralpiano/discussions"
 Dataset = "https://magenta.withgoogle.com/datasets/maestro"
-Demo = "https://huggingface.co/datasets/projectlosangeles/Neural-Piano-Synthesizer"
